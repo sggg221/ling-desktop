@@ -1,0 +1,27 @@
+name: macOS checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check API client with local HTTP mocks
+        run: bash check.sh
+      - name: Check settings drafts and request lifecycle
+        run: swift test
+      - name: Check launcher behavior with stub commands
+        run: python3 Tests/LauncherChecks.py
+      - name: Build and verify the app bundle
+        run: |
+          bash build.sh
+          plutil -lint Resources/Info.plist
+          codesign --verify --strict dist/LingDesktop.app

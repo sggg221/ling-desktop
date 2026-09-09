@@ -55,15 +55,21 @@ struct KeychainError: LocalizedError {
 
 @MainActor
 final class SettingsStore: ObservableObject {
-    @Published var baseURL: String
-    @Published var model: String
-    @Published var apiKey = ""
-    @Published var loadError: String?
+    @Published private(set) var baseURL: String
+    @Published private(set) var model: String
+    @Published private(set) var apiKey = ""
+    @Published private(set) var loadError: String?
+    private let defaults: UserDefaults
+    private let saveKey: (String) throws -> Void
 
-    init() {
-        baseURL = UserDefaults.standard.string(forKey: "lingBaseURL") ?? LingConfiguration().baseURL
-        model = UserDefaults.standard.string(forKey: "lingModel") ?? "Ling-3.0-flash-VL"
-        do { apiKey = try KeychainStore.read() }
+    init(defaults: UserDefaults = .standard,
+         readKey: () throws -> String = KeychainStore.read,
+         saveKey: @escaping (String) throws -> Void = KeychainStore.save) {
+        self.defaults = defaults
+        self.saveKey = saveKey
+        baseURL = defaults.string(forKey: "lingBaseURL") ?? LingConfiguration().baseURL
+        model = defaults.string(forKey: "lingModel") ?? "Ling-3.0-flash-VL"
+        do { apiKey = try readKey() }
         catch { loadError = error.localizedDescription }
     }
 
@@ -72,10 +78,19 @@ final class SettingsStore: ObservableObject {
                           model: model.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
-    func save() throws {
-        try KeychainStore.save(apiKey.trimmingCharacters(in: .whitespacesAndNewlines))
-        UserDefaults.standard.set(baseURL.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "lingBaseURL")
-        UserDefaults.standard.set(model.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "lingModel")
+    func save(configuration: LingConfiguration, apiKey: String) throws {
+        let configuration = LingConfiguration(
+            baseURL: configuration.baseURL.trimmingCharacters(in: .whitespacesAndNewlines),
+            model: configuration.model.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+        let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        try configuration.validate()
+        try saveKey(key)
+        defaults.set(configuration.baseURL, forKey: "lingBaseURL")
+        defaults.set(configuration.model, forKey: "lingModel")
+        baseURL = configuration.baseURL
+        model = configuration.model
+        self.apiKey = key
         loadError = nil
     }
 }

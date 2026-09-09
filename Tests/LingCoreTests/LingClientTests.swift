@@ -49,7 +49,9 @@ final class LingClientTests {
             configuration: LingConfiguration(), apiKey: key,
             question: "  What is on screen?  ", imageData: image
         )
-        XCTAssertEqual(result, "An editor.")
+        XCTAssertEqual(result.text, "An editor.")
+        XCTAssertNil(result.finishReason)
+        XCTAssertFalse(result.isTruncated)
     }
 
     func testTextOnlyUsesConfiguredModelWithoutImage() async throws {
@@ -213,7 +215,62 @@ final class LingClientTests {
             Self.response(request, body: #"{"choices":[{"message":{"content":[{"type":"text","text":"First"},{"type":"text","text":"Second"}]}}]}"#)
         }
         let answer = try await client.complete(configuration: LingConfiguration(), apiKey: key, question: "Hi")
-        XCTAssertEqual(answer, "First\nSecond")
+        XCTAssertEqual(answer.text, "First\nSecond")
+    }
+
+    func testFinishReasonDistinguishesTruncatedAnswers() async throws {
+        let cases: [(String, String?, Bool)] = [
+            (#"{"choices":[{"finish_reason":"length","message":{"content":"  Partial answer  "}}]}"#, "length", true),
+            (#"{"choices":[{"finish_reason":"stop","message":{"content":"  Partial answer  "}}]}"#, "stop", false),
+            (#"{"choices":[{"finish_reason":null,"message":{"content":"  Partial answer  "}}]}"#, nil, false),
+            (#"{"choices":[{"message":{"content":"  Partial answer  "}}]}"#, nil, false),
+            (#"{"choices":[{"finish_reason":"custom","message":{"content":"  Partial answer  "}}]}"#, "custom", false)
+        ]
+        for (body, finishReason, truncated) in cases {
+            MockURLProtocol.setHandler { request in Self.response(request, body: body) }
+            let result = try await client.complete(configuration: LingConfiguration(), apiKey: key, question: "Hi")
+            XCTAssertEqual(result.text, "Partial answer")
+            XCTAssertEqual(result.finishReason, finishReason)
+            XCTAssertEqual(result.isTruncated, truncated)
+        }
+    }
+
+    func testTruncatedTextArrayPreservesPartialAnswer() async throws {
+        MockURLProtocol.setHandler { request in
+            Self.response(request, body: #"{"choices":[{"finish_reason":"length","message":{"content":[{"type":"text","text":"First"},{"type":"text","text":"Second"}]}},{"finish_reason":"stop","message":{"content":"Ignored choice"}}]}"#)
+        }
+        let result = try await client.complete(configuration: LingConfiguration(), apiKey: key, question: "Hi")
+        XCTAssertEqual(result.text, "First\nSecond")
+        XCTAssertEqual(result.finishReason, "length")
+        XCTAssertEqual(result.isTruncated, true)
+    }
+
+    func testConfigurationValidationDoesNotRequireCredentialsOrNetwork() throws {
+        MockURLProtocol.setHandler { request in
+            XCTFail("Saving configuration must not make a network request.")
+            return Self.response(request)
+        }
+        try LingConfiguration().validate()
+        try LingConfiguration(baseURL: " https://example.com/v1/chat/completions ", model: " custom ").validate()
+        try LingConfiguration(baseURL: "http://localhost:8080/v1").validate()
+        for configuration in [
+            LingConfiguration(baseURL: "http://example.com/v1"),
+            LingConfiguration(baseURL: "https://user:secret@example.com/v1"),
+            LingConfiguration(baseURL: "https://example.com/v1?key=secret"),
+            LingConfiguration(baseURL: "https://example.com/v1#section"),
+            LingConfiguration(baseURL: ""),
+            LingConfiguration(model: " \n")
+        ] {
+            do {
+                try configuration.validate()
+                XCTFail("Expected invalid configuration to be rejected before saving.")
+            } catch {
+                guard case .invalidConfiguration = error as? LingClientError else {
+                    XCTFail("Unexpected error: \(error)")
+                    continue
+                }
+            }
+        }
     }
 
     func testTimeoutIsReportedDistinctly() async {

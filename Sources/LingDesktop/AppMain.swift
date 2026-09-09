@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let capture = ScreenCapture()
     private var assistantPanel: AssistantPanel?
     private var settingsWindow: NSWindow?
+    private var settingsEditor: SettingsEditorModel?
     private var captureTask: Task<Void, Never>?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -77,13 +78,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             window.title = "百灵设置"
             window.isReleasedWhenClosed = false
             window.level = .floating
-            window.contentView = NSHostingView(rootView: SettingsView(settings: settings,
-                close: { [weak self] in self?.settingsWindow?.orderOut(nil) }))
+            window.delegate = self
             window.center()
             settingsWindow = window
         }
+        if settingsEditor == nil {
+            let editor = SettingsEditorModel(settings: settings)
+            settingsEditor = editor
+            settingsWindow?.contentView = NSHostingView(rootView: SettingsView(editor: editor,
+                close: { [weak self] in self?.closeSettings() }))
+        }
         NSApp.activate(ignoringOtherApps: true)
         settingsWindow?.makeKeyAndOrderFront(nil)
+    }
+
+    private func closeSettings() {
+        settingsEditor?.cancelTest()
+        settingsWindow?.close()
     }
 
     private func configureMainMenu() {
@@ -113,7 +124,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         guard captureTask == nil else { return }
         model.cancel()
         assistantPanel?.orderOut(nil)
-        settingsWindow?.orderOut(nil)
+        closeSettings()
         captureTask = Task {
             defer { captureTask = nil }
             do {
@@ -142,7 +153,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
-        if let window = notification.object as? NSWindow, window === assistantPanel { model.cancel() }
+        guard let window = notification.object as? NSWindow else { return }
+        if window === assistantPanel { model.cancel() }
+        if window === settingsWindow {
+            settingsEditor?.cancelTest()
+            settingsEditor = nil
+            window.contentView = nil
+        }
     }
 
     private func alert(_ title: String, detail: String) {
@@ -157,6 +174,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func quit() { NSApp.terminate(nil) }
 
     func applicationWillTerminate(_ notification: Notification) {
+        settingsEditor?.cancelTest()
         model.cancel()
         capture.cancel()
         captureTask?.cancel()

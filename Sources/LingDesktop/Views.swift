@@ -35,6 +35,7 @@ struct AssistantView: View {
                         model.cancel()
                         model.imageData = nil
                         model.answer = ""
+                        model.answerIsTruncated = false
                         model.error = nil
                     } label: { Image(systemName: "xmark.circle.fill").symbolRenderingMode(.palette)
                             .foregroundStyle(.secondary, Color(nsColor: .windowBackgroundColor)) }
@@ -101,6 +102,12 @@ struct AssistantView: View {
                         .buttonStyle(.plain).help("复制回答").accessibilityLabel("复制回答")
                 }
             }
+            if model.answerIsTruncated {
+                Label("回答达到长度上限，内容可能不完整。可以缩小问题范围后重新提问。",
+                      systemImage: "exclamationmark.triangle")
+                    .font(.caption).foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             ScrollView {
                 Group {
                     if let error = model.error {
@@ -125,11 +132,7 @@ struct AssistantView: View {
 }
 
 struct SettingsView: View {
-    @ObservedObject var settings: SettingsStore
-    @State private var testing = false
-    @State private var message = ""
-    @State private var failed = false
-    @State private var testTask: Task<Void, Never>?
+    @ObservedObject var editor: SettingsEditorModel
     var close: () -> Void
 
     var body: some View {
@@ -137,59 +140,41 @@ struct SettingsView: View {
             Text("连接百灵").font(.title2.weight(.semibold))
             VStack(alignment: .leading, spacing: 6) {
                 Text("API Base URL").font(.subheadline.weight(.medium))
-                TextField(LingConfiguration().baseURL, text: $settings.baseURL)
+                TextField(LingConfiguration().baseURL, text: $editor.configuration.baseURL)
                     .textFieldStyle(.roundedBorder).accessibilityLabel("API Base URL")
             }
             VStack(alignment: .leading, spacing: 6) {
                 Text("API Key").font(.subheadline.weight(.medium))
-                SecureField("填写百灵 API Key", text: $settings.apiKey)
+                SecureField("填写百灵 API Key", text: $editor.apiKey)
                     .textFieldStyle(.roundedBorder).accessibilityLabel("API Key")
                 Text("保存在本机 macOS 钥匙串中。").font(.caption).foregroundStyle(.secondary)
             }
             VStack(alignment: .leading, spacing: 6) {
                 Text("Model Name").font(.subheadline.weight(.medium))
-                TextField("Ling-3.0-flash-VL", text: $settings.model)
+                TextField("Ling-3.0-flash-VL", text: $editor.configuration.model)
                     .textFieldStyle(.roundedBorder).accessibilityLabel("Model Name")
             }
-            if let error = settings.loadError {
+            Text("保存后才会用于提问；关闭或取消会放弃未保存的修改。")
+                .font(.caption).foregroundStyle(.secondary)
+            if let error = editor.settings.loadError {
                 Text(error).foregroundStyle(.red).font(.caption).textSelection(.enabled)
             }
-            if !message.isEmpty {
+            if !editor.message.isEmpty {
                 ScrollView {
-                    Text(message).font(.callout).foregroundStyle(failed ? Color.red : Color.green)
+                    Text(editor.message).font(.callout).foregroundStyle(editor.failed ? Color.red : Color.green)
                         .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
-                }.frame(maxHeight: 90).accessibilityLabel("连接状态：\(message)")
+                }.frame(maxHeight: 90).accessibilityLabel("连接状态：\(editor.message)")
             }
             HStack {
-                Button("测试连接", action: test).disabled(testing || settings.apiKey.isEmpty)
-                if testing { ProgressView().controlSize(.small) }
+                Button("测试连接", action: editor.test)
+                    .disabled(editor.testing || editor.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                if editor.testing { ProgressView().controlSize(.small) }
                 Spacer()
+                Button("取消", action: close)
                 Button("保存") {
-                    do { try settings.save(); close() }
-                    catch { message = error.localizedDescription; failed = true }
+                    if editor.save() { close() }
                 }.buttonStyle(.borderedProminent).keyboardShortcut(.return, modifiers: .command)
             }
         }.padding(24).frame(width: 450)
-        .onDisappear { testTask?.cancel(); testing = false }
-    }
-
-    private func test() {
-        testing = true
-        message = ""
-        testTask = Task { @MainActor in
-            do {
-                let answer = try await LingClient().complete(configuration: settings.configuration,
-                                                             apiKey: settings.apiKey,
-                                                             question: "只回复 OK。", imageData: nil)
-                guard !Task.isCancelled else { return }
-                failed = false
-                message = "连接成功 · \(settings.model)\n\(answer)"
-            } catch {
-                guard !Task.isCancelled else { return }
-                failed = true
-                message = error.localizedDescription
-            }
-            testing = false
-        }
     }
 }

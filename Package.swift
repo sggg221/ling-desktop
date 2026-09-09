@@ -8,6 +8,7 @@ let package = Package(
     targets: [
         .target(name: "LingCore"),
         .executableTarget(name: "LingDesktop", dependencies: ["LingCore"]),
-        .executableTarget(name: "LingCoreChecks", dependencies: ["LingCore"], path: "Tests/LingCoreTests")
+        .executableTarget(name: "LingCoreChecks", dependencies: ["LingCore"], path: "Tests/LingCoreTests"),
+        .testTarget(name: "LingDesktopTests", dependencies: ["LingDesktop", "LingCore"])
     ]
 )
