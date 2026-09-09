@@ -47,6 +47,9 @@ enum ChecksMain {
             ("404 model error", suite.testHTTP404IncludesPlainResponseBody),
             ("malformed and empty responses", suite.testMalformedAndEmptyResponsesFailClearly),
             ("text array response", suite.testTextContentArrayIsSupported),
+            ("finish reason and truncation", suite.testFinishReasonDistinguishesTruncatedAnswers),
+            ("truncated text array", suite.testTruncatedTextArrayPreservesPartialAnswer),
+            ("configuration validation before saving", suite.testConfigurationValidationDoesNotRequireCredentialsOrNetwork),
             ("timeout", suite.testTimeoutIsReportedDistinctly),
             ("connection test endpoint", suite.testConnectionUsesRealCompletionPath)
         ]

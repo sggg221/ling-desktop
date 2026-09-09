@@ -7,6 +7,7 @@ final class AssistantModel: ObservableObject {
     @Published var imageData: Data?
     @Published var question = ""
     @Published var answer = ""
+    @Published var answerIsTruncated = false
     @Published var error: String?
     @Published var isLoading = false
     @Published var elapsed: Double?
@@ -22,6 +23,7 @@ final class AssistantModel: ObservableObject {
         imageData = data
         question = ""
         answer = ""
+        answerIsTruncated = false
         error = nil
         elapsed = nil
     }
@@ -42,6 +44,7 @@ final class AssistantModel: ObservableObject {
             return
         }
         answer = ""
+        answerIsTruncated = false
         error = nil
         elapsed = nil
         isLoading = true
@@ -56,7 +59,8 @@ final class AssistantModel: ObservableObject {
                 let result = try await client.complete(configuration: config, apiKey: key,
                                                        question: prompt, imageData: image)
                 guard !Task.isCancelled, requestID == id else { return }
-                answer = result
+                answer = result.text
+                answerIsTruncated = result.isTruncated
                 elapsed = Date().timeIntervalSince(start)
             } catch {
                 guard !Task.isCancelled, requestID == id else { return }

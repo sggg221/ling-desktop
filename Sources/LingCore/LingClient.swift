@@ -11,6 +11,24 @@ public struct LingConfiguration: Equatable, Sendable {
         self.baseURL = baseURL
         self.model = model
     }
+
+    public func validate() throws {
+        guard !model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw LingClientError.invalidConfiguration("Enter a model name in Settings.")
+        }
+        _ = try LingClient.endpoint(for: baseURL)
+    }
+}
+
+public struct LingCompletion: Equatable, Sendable {
+    public let text: String
+    public let finishReason: String?
+    public var isTruncated: Bool { finishReason == "length" }
+
+    public init(text: String, finishReason: String? = nil) {
+        self.text = text
+        self.finishReason = finishReason
+    }
 }
 
 public enum LingClientError: Error, LocalizedError, Equatable {
@@ -53,15 +71,13 @@ public struct LingClient: Sendable {
         apiKey: String,
         question: String,
         imageData: Data? = nil
-    ) async throws -> String {
+    ) async throws -> LingCompletion {
         let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else {
             throw LingClientError.invalidConfiguration("Enter your Ling API key in Settings.")
         }
+        try configuration.validate()
         let model = configuration.model.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !model.isEmpty else {
-            throw LingClientError.invalidConfiguration("Enter a model name in Settings.")
-        }
         let endpoint = try Self.endpoint(for: configuration.baseURL)
         let trimmedQuestion = question.trimmingCharacters(in: .whitespacesAndNewlines)
         let image = imageData.flatMap { $0.isEmpty ? nil : $0 }
@@ -130,18 +146,19 @@ public struct LingClient: Sendable {
             .trimmingCharacters(in: .whitespacesAndNewlines), !answer.isEmpty else {
             throw LingClientError.invalidResponse("The server returned no answer text.")
         }
-        return answer
+        return LingCompletion(text: answer, finishReason: completion.choices.first?.finishReason)
     }
 
     public func testConnection(configuration: LingConfiguration, apiKey: String) async throws -> String {
-        try await complete(
+        let result = try await complete(
             configuration: configuration,
             apiKey: apiKey,
             question: "Reply with OK."
         )
+        return result.text
     }
 
-    private static func endpoint(for baseURL: String) throws -> URL {
+    fileprivate static func endpoint(for baseURL: String) throws -> URL {
         let value = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard var components = URLComponents(string: value),
               let scheme = components.scheme?.lowercased(),
@@ -242,6 +259,12 @@ private struct CompletionResponse: Decodable {
 
     struct Choice: Decodable {
         let message: AssistantMessage
+        let finishReason: String?
+
+        enum CodingKeys: String, CodingKey {
+            case message
+            case finishReason = "finish_reason"
+        }
     }
 
     struct AssistantMessage: Decodable {
